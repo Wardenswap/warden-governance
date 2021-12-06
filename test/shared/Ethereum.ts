@@ -9,3 +9,7 @@ export async function minerStart() {
 export async function minerStop() {
   await network.provider.send("evm_setAutomine", [false])
 }
+
+export async function mineBlock() {
+  return ethers.provider.send("evm_mine", [])
+}

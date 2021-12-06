@@ -5,7 +5,7 @@ import { expect } from 'chai'
 import { Warden } from '../typechain'
 import { getApprovalDigest } from './shared/utilities'
 import { ecsign } from 'ethereumjs-util'
-import { minerStop, minerStart } from './shared/Ethereum'
+import { minerStop, minerStart, mineBlock } from './shared/Ethereum'
 const MaxUint96 = '79228162514264337593543950335'
 
 const TOTAL_SUPPLY = parseUnits('200000000', 18) // 200,000,000 Wad
@@ -223,6 +223,68 @@ describe('Warden', () => {
       const r4 = await t4.wait()
       expect(await warden.numCheckpoints(a1.address)).to.eq(2)
       expect(await warden.checkpoints(a1.address, 1)).to.eql([r4.blockNumber, parseUnits('100', 18)])
+    })
+  })
+
+  describe('getPriorVotes', () => {
+    it('reverts if block number >= current block', async () => {
+      await expect(warden.getPriorVotes(a1.address, 5e10))
+      .revertedWith('Wad::getPriorVotes: not yet determined')
+    })
+
+    it('returns 0 if there are no checkpoints', async () => {
+      expect(await warden.getPriorVotes(a1.address, 0)).to.eq(0)
+    })
+
+    it('returns the latest block if >= last checkpoint block', async () => {
+      const t1 = await warden.delegate(a1.address)
+      await mineBlock()
+      await mineBlock()
+      const r1 = await t1.wait()
+
+      expect(await warden.getPriorVotes(a1.address, r1.blockNumber)).to.eq(TOTAL_SUPPLY)
+      expect(await warden.getPriorVotes(a1.address, r1.blockNumber + 1)).to.eq(TOTAL_SUPPLY)
+    })
+
+    it('returns zero if < first checkpoint block', async () => {
+      await mineBlock()
+      const t1 = await warden.delegate(a1.address)
+      await mineBlock()
+      await mineBlock()
+      const r1 = await t1.wait()
+
+      expect(await warden.getPriorVotes(a1.address, r1.blockNumber - 1)).to.eq('0')
+      expect(await warden.getPriorVotes(a1.address, r1.blockNumber + 1)).to.eq(TOTAL_SUPPLY)
+    })
+
+    it('generally returns the voting balance at the appropriate checkpoint', async () => {
+      const t1 = await warden.delegate(a1.address)
+      await mineBlock()
+      await mineBlock()
+      const t2 = await warden.transfer(a2.address, parseUnits('10', 18))
+      await mineBlock()
+      await mineBlock()
+      const t3 = await warden.transfer(a2.address, parseUnits('10', 18))
+      await mineBlock()
+      await mineBlock()
+      const t4 = await warden.connect(a2).transfer(deployer.address, parseUnits('20', 18))
+      await mineBlock()
+      await mineBlock()
+
+      const r1 = await t1.wait()
+      const r2 = await t2.wait()
+      const r3 = await t3.wait()
+      const r4 = await t4.wait()
+
+      expect(await warden.getPriorVotes(a1.address, r1.blockNumber - 1)).to.eq('0')
+      expect(await warden.getPriorVotes(a1.address, r1.blockNumber)).to.eq(TOTAL_SUPPLY)
+      expect(await warden.getPriorVotes(a1.address, r1.blockNumber + 1)).to.eq(TOTAL_SUPPLY)
+      expect(await warden.getPriorVotes(a1.address, r2.blockNumber)).to.eq(TOTAL_SUPPLY.sub(parseUnits('10', 18)))
+      expect(await warden.getPriorVotes(a1.address, r2.blockNumber + 1)).to.eq(TOTAL_SUPPLY.sub(parseUnits('10', 18)))
+      expect(await warden.getPriorVotes(a1.address, r3.blockNumber)).to.eq(TOTAL_SUPPLY.sub(parseUnits('20', 18)))
+      expect(await warden.getPriorVotes(a1.address, r3.blockNumber + 1)).to.eq(TOTAL_SUPPLY.sub(parseUnits('20', 18)))
+      expect(await warden.getPriorVotes(a1.address, r4.blockNumber)).to.eq(TOTAL_SUPPLY)
+      expect(await warden.getPriorVotes(a1.address, r4.blockNumber + 1)).to.eq(TOTAL_SUPPLY)
     })
   })
 })
