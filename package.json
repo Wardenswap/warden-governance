@@ -1,0 +1,38 @@
+{
+  "name": "warden-governance",
+  "version": "1.0.0",
+  "types": "./types/index.ts",
+  "description": "Warden governance",
+  "main": "index.js",
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "test": "TS_NODE_TRANSPILE_ONLY=1 npx hardhat test",
+    "test:coverage": "NODE_OPTIONS=\"--max-old-space-size=2048\" hardhat coverage"
+  },
+  "keywords": [
+    "Warden",
+    "ERC20"
+  ],
+  "author": "Arc Warden",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.0.2",
+    "@nomiclabs/hardhat-waffle": "^2.0.1",
+    "@openzeppelin/test-helpers": "^0.5.10",
+    "@typechain/ethers-v5": "^7.1.0",
+    "@typechain/hardhat": "^2.3.0",
+    "@types/chai": "^4.2.15",
+    "@types/mocha": "^8.2.1",
+    "@types/node": "^14.14.31",
+    "chai": "^4.3.4",
+    "chai-bn": "^0.2.1",
+    "dotenv": "^10.0.0",
+    "ethereum-waffle": "^3.4.0",
+    "ethers": "^5.4.7",
+    "hardhat": "^2.6.4",
+    "solidity-coverage": "^0.7.15",
+    "ts-node": "^9.1.1",
+    "typechain": "^5.1.2",
+    "typescript": "^4.2.2"
+  }
+}
