@@ -169,6 +169,30 @@ describe('Warden', () => {
   
       await warden.connect(spender).transferFrom(deployer.address, spender.address, TEST_AMOUNT)
     })
+
+    it('permits: max approval', async () => {
+      const nonce = await warden.nonces(deployer.address)
+      const deadline = constants.MaxUint256
+      const digest = await getApprovalDigest(
+        warden,
+        deployer.address,
+        spender.address,
+        constants.MaxUint256,
+        nonce,
+        deadline,
+        chainId
+      )
+  
+      const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
+  
+      await expect(warden.connect(other0).permit(deployer.address, spender.address, constants.MaxUint256, deadline, v, utils.hexlify(r), utils.hexlify(s)))
+        .to.emit(warden, 'Approval')
+        .withArgs(deployer.address, spender.address, MaxUint96)
+      expect(await warden.allowance(deployer.address, spender.address)).to.eq(MaxUint96)
+      expect(await warden.nonces(deployer.address)).to.eq('1')
+  
+      await warden.connect(spender).transferFrom(deployer.address, spender.address, TEST_AMOUNT)
+    })
   })
 
   it('nested delegation', async () => {
