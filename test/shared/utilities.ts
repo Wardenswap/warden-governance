@@ -11,6 +11,10 @@ const PERMIT_TYPEHASH = keccak256(
   toUtf8Bytes('Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)')
 )
 
+const DELEGATION_TYPEHASH = keccak256(
+  toUtf8Bytes('Delegation(address delegatee,uint256 nonce,uint256 expiry)')
+)
+
 function getDomainSeparator(name: string, tokenAddress: string, chainId: number) {
   return keccak256(
     defaultAbiCoder.encode(
@@ -47,6 +51,33 @@ export async function getApprovalDigest(
           defaultAbiCoder.encode(
             ['bytes32', 'address', 'address', 'uint256', 'uint256', 'uint256'],
             [PERMIT_TYPEHASH, owner, spender, value, nonce, deadline]
+          )
+        )
+      ]
+    )
+  )
+}
+
+export async function getDelegateBySigDigest(
+  token: Warden,
+  delegatee: string,
+  nonce: BigNumber,
+  expiry: BigNumber,
+  chainId: number
+) {
+  const name = await token.name()
+  const DOMAIN_SEPARATOR = getDomainSeparator(name, token.address, chainId)
+  return keccak256(
+    solidityPack(
+      ['bytes1', 'bytes1', 'bytes32', 'bytes32'],
+      [
+        '0x19',
+        '0x01',
+        DOMAIN_SEPARATOR,
+        keccak256(
+          defaultAbiCoder.encode(
+            ['bytes32', 'address', 'uint256', 'uint256'],
+            [DELEGATION_TYPEHASH, delegatee, nonce, expiry]
           )
         )
       ]

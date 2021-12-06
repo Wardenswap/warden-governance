@@ -1,20 +1,15 @@
 import { ethers, waffle, network } from 'hardhat'
 import { utils, BigNumber, constants } from 'ethers'
-const { parseUnits } = utils
+const { parseUnits, formatBytes32String } = utils
 import { expect } from 'chai'
 import { Warden } from '../typechain'
-import { getApprovalDigest } from './shared/utilities'
+import { getApprovalDigest, getDelegateBySigDigest } from './shared/utilities'
 import { ecsign } from 'ethereumjs-util'
 import { minerStop, minerStart, mineBlock } from './shared/Ethereum'
 const MaxUint96 = '79228162514264337593543950335'
 
 const TOTAL_SUPPLY = parseUnits('200000000', 18) // 200,000,000 Wad
-const DOMAIN_TYPEHASH = utils.keccak256(
-  utils.toUtf8Bytes('EIP712Domain(string name,uint256 chainId,address verifyingContract)')
-)
 const TEST_AMOUNT = parseUnits('10', 18)
-
-
 
 describe('Warden', () => {
   let warden: Warden
@@ -165,6 +160,45 @@ describe('Warden', () => {
       .withArgs(deployer.address, constants.AddressZero, amount1)
     expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0)
     expect(await warden.getCurrentVotes(deployer.address)).to.be.eq(amount1)
+  })
+
+  describe('delegateBySig', () => {
+    it('reverts if the signatory is invalid', async () => {
+      const delegatee = deployer, nonce = BigNumber.from('0'), expiry = BigNumber.from('0')
+      await expect(warden.connect(other0).delegateBySig(deployer.address, nonce, expiry, 0, formatBytes32String('bad'), formatBytes32String('bad')))
+      .revertedWith('Wad::delegateBySig: invalid signature')
+    })
+
+    it('reverts if the nonce is bad ', async () => {
+      const delegatee = deployer, nonce = BigNumber.from('1'), expiry = BigNumber.from('0')
+      const digest = await getDelegateBySigDigest(warden, delegatee.address, nonce, expiry, chainId)
+      const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
+
+      await expect(warden.connect(other0).delegateBySig(deployer.address, nonce, expiry, v, utils.hexlify(r), utils.hexlify(s)))
+      .revertedWith('Wad::delegateBySig: invalid nonce')
+    })
+
+    it('reverts if the signature has expired', async () => {
+      const delegatee = deployer, nonce = BigNumber.from('0'), expiry = BigNumber.from('0')
+      const digest = await getDelegateBySigDigest(warden, delegatee.address, nonce, expiry, chainId)
+      const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
+
+      await expect(warden.connect(other0).delegateBySig(deployer.address, nonce, expiry, v, utils.hexlify(r), utils.hexlify(s)))
+      .revertedWith('Wad::delegateBySig: signature expired')
+    })
+
+    it('delegates on behalf of the signatory', async () => {
+      const delegatee = deployer, nonce = BigNumber.from('0'), expiry = BigNumber.from('10000000000')
+      const digest = await getDelegateBySigDigest(warden, delegatee.address, nonce, expiry, chainId)
+      const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
+
+      await expect(warden.connect(other0).delegateBySig(deployer.address, nonce, expiry, v, utils.hexlify(r), utils.hexlify(s)))
+        .to.emit(warden, 'DelegateChanged')
+        .withArgs(deployer.address, constants.AddressZero, deployer.address)
+        .to.emit(warden, 'DelegateVotesChanged')
+        .withArgs(deployer.address, 0, TOTAL_SUPPLY)
+      expect(await warden.getCurrentVotes(deployer.address)).to.be.eq(TOTAL_SUPPLY)
+    })
   })
 
   describe('numCheckpoints', () => {
