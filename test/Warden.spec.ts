@@ -5,6 +5,7 @@ import { expect } from 'chai'
 import { Warden } from '../typechain'
 import { getApprovalDigest } from './shared/utilities'
 import { ecsign } from 'ethereumjs-util'
+import { minerStop, minerStart } from './shared/Ethereum'
 const MaxUint96 = '79228162514264337593543950335'
 
 const TOTAL_SUPPLY = parseUnits('200000000', 18) // 200,000,000 Wad
@@ -13,12 +14,14 @@ const DOMAIN_TYPEHASH = utils.keccak256(
 )
 const TEST_AMOUNT = parseUnits('10', 18)
 
+
+
 describe('Warden', () => {
   let warden: Warden
   let chainId: number
 
   const provider = waffle.provider
-  const [deployer, spender, other0, other1] = provider.getWallets()
+  const [deployer, spender, other0, other1, a1, a2] = provider.getWallets()
 
   beforeEach(async () => {
     // Deploy Uni route
@@ -129,26 +132,97 @@ describe('Warden', () => {
     await warden.connect(spender).transferFrom(deployer.address, spender.address, TEST_AMOUNT)
   })
 
-  describe('Delegation', () => {
-    it('nested delegation', async () => {
-      const amount0 = parseUnits('1', 18)
-      const amount1 = parseUnits('2', 18)
-      await warden.transfer(other0.address, amount0)
-      await warden.transfer(other1.address, amount1)
-  
-      expect(await warden.getCurrentVotes(other0.address)).to.be.eq(0)
-      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(0)
-  
-      await warden.connect(other0).delegate(other1.address)
-      expect(await warden.getCurrentVotes(other0.address)).to.be.eq(0)
-      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0)
-  
-      await warden.connect(other1).delegate(other1.address)
-      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0.add(amount1))
-  
-      await warden.connect(other1).delegate(deployer.address)
-      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0)
-      expect(await warden.getCurrentVotes(deployer.address)).to.be.eq(amount1)
+  it('nested delegation', async () => {
+    const amount0 = parseUnits('1', 18)
+    const amount1 = parseUnits('2', 18)
+    await warden.transfer(other0.address, amount0)
+    await warden.transfer(other1.address, amount1)
+
+    expect(await warden.getCurrentVotes(other0.address)).to.be.eq(0)
+    expect(await warden.getCurrentVotes(other1.address)).to.be.eq(0)
+
+    await expect(warden.connect(other0).delegate(other1.address))
+      .to.emit(warden, 'DelegateChanged')
+      .withArgs(other0.address, constants.AddressZero, other1.address)
+      .to.emit(warden, 'DelegateVotesChanged')
+      .withArgs(other1.address, 0, amount0)
+    expect(await warden.getCurrentVotes(other0.address)).to.be.eq(0)
+    expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0)
+
+    await expect(warden.connect(other1).delegate(other1.address))
+      .to.emit(warden, 'DelegateChanged')
+      .withArgs(other1.address, constants.AddressZero, other1.address)
+      .to.emit(warden, 'DelegateVotesChanged')
+      .withArgs(other1.address, amount0, amount0.add(amount1))
+    expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0.add(amount1))
+
+    await expect(warden.connect(other1).delegate(deployer.address))
+      .to.emit(warden, 'DelegateChanged')
+      .withArgs(other1.address, other1.address, deployer.address)
+      .to.emit(warden, 'DelegateVotesChanged')
+      .withArgs(other1.address, amount0.add(amount1), amount0)
+      .to.emit(warden, 'DelegateVotesChanged')
+      .withArgs(deployer.address, constants.AddressZero, amount1)
+    expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0)
+    expect(await warden.getCurrentVotes(deployer.address)).to.be.eq(amount1)
+  })
+
+  describe('numCheckpoints', () => {
+    it('returns the number of checkpoints for a delegate', async () => {
+      const delegator = other0
+      await warden.transfer(delegator.address, parseUnits('100', 18))
+      expect(await warden.numCheckpoints(a1.address)).to.eq(0)
+
+      const t1 = await warden.connect(delegator).delegate(a1.address)
+      const r1 = await t1.wait()
+      expect(await warden.numCheckpoints(a1.address)).to.eq(1)
+
+      const t2 = await warden.connect(delegator).transfer(a2.address, parseUnits('10', 18))
+      const r2 = await t2.wait()
+      expect(await warden.numCheckpoints(a1.address)).to.eq(2)
+
+      const t3 = await warden.connect(delegator).transfer(a2.address, parseUnits('10', 18))
+      const r3 = await t3.wait()
+      expect(await warden.numCheckpoints(a1.address)).to.eq(3)
+
+      const t4 = await warden.transfer(delegator.address, parseUnits('20', 18))
+      const r4 = await t4.wait()
+      expect(await warden.numCheckpoints(a1.address)).to.eq(4)
+
+      const a = await warden.checkpoints(a1.address, 0)
+
+      expect(await warden.checkpoints(a1.address, 0)).to.eql([r1.blockNumber, parseUnits('100', 18)])
+      expect(await warden.checkpoints(a1.address, 1)).to.eql([r2.blockNumber, parseUnits('90', 18)])
+      expect(await warden.checkpoints(a1.address, 2)).to.eql([r3.blockNumber, parseUnits('80', 18)])
+      expect(await warden.checkpoints(a1.address, 3)).to.eql([r4.blockNumber, parseUnits('100', 18)])
+    })
+
+    it('does not add more than one checkpoint in a block', async () => {
+      const delegator = other0
+
+      await warden.transfer(delegator.address, parseUnits('100', 18))
+      expect(await warden.numCheckpoints(a1.address)).to.eq(0)
+      await minerStop()
+
+      const t1 =  await warden.connect(delegator).delegate(a1.address)
+      const t2 =  await warden.connect(delegator).transfer(a2.address, parseUnits('10', 18))
+      const t3 =  await warden.connect(delegator).transfer(a2.address, parseUnits('10', 18))
+
+      await minerStart()
+      const r1 = await t1.wait()
+      const r2 = await t2.wait()
+      const r3 = await t3.wait()
+      
+      expect(await warden.numCheckpoints(a1.address)).to.eq(1)
+
+      expect(await warden.checkpoints(a1.address, 0)).to.eql([r1.blockNumber, parseUnits('80', 18)])
+      expect(await warden.checkpoints(a1.address, 1)).to.eql([0, parseUnits('0', 18)])
+      expect(await warden.checkpoints(a1.address, 2)).to.eql([0, parseUnits('0', 18)])
+
+      const t4 = await warden.transfer(delegator.address, parseUnits('20', 18))
+      const r4 = await t4.wait()
+      expect(await warden.numCheckpoints(a1.address)).to.eq(2)
+      expect(await warden.checkpoints(a1.address, 1)).to.eql([r4.blockNumber, parseUnits('100', 18)])
     })
   })
 })
