@@ -11,14 +11,14 @@ const TOTAL_SUPPLY = parseUnits('200000000', 18) // 200,000,000 Wad
 const DOMAIN_TYPEHASH = utils.keccak256(
   utils.toUtf8Bytes('EIP712Domain(string name,uint256 chainId,address verifyingContract)')
 )
-const TEST_AMOUNT = utils.parseUnits('10', 18)
+const TEST_AMOUNT = parseUnits('10', 18)
 
 describe('Warden', () => {
   let warden: Warden
   let chainId: number
 
   const provider = waffle.provider
-  const [deployer, spender, other] = provider.getWallets()
+  const [deployer, spender, other0, other1] = provider.getWallets()
 
   beforeEach(async () => {
     // Deploy Uni route
@@ -62,21 +62,21 @@ describe('Warden', () => {
   })
 
   it('transfer', async () => {
-    await expect(warden.transfer(other.address, TEST_AMOUNT))
+    await expect(warden.transfer(other0.address, TEST_AMOUNT))
       .to.emit(warden, 'Transfer')
-      .withArgs(deployer.address, other.address, TEST_AMOUNT)
+      .withArgs(deployer.address, other0.address, TEST_AMOUNT)
     expect(await warden.balanceOf(deployer.address)).to.eq(TOTAL_SUPPLY.sub(TEST_AMOUNT))
-    expect(await warden.balanceOf(other.address)).to.eq(TEST_AMOUNT)
+    expect(await warden.balanceOf(other0.address)).to.eq(TEST_AMOUNT)
   })
 
   it('transfer:all', async () => {
-    await warden.transfer(other.address, TOTAL_SUPPLY)
+    await warden.transfer(other0.address, TOTAL_SUPPLY)
   })
 
   it('transfer:fail', async () => {
-    await expect(warden.transfer(other.address, TOTAL_SUPPLY.add(1)))
+    await expect(warden.transfer(other0.address, TOTAL_SUPPLY.add(1)))
     .to.be.revertedWith('Wad::_transferTokens: transfer amount exceeds balance')
-    await expect(warden.connect(other).transfer(deployer.address, 1))
+    await expect(warden.connect(other0).transfer(deployer.address, 1))
     .to.be.revertedWith('Wad::_transferTokens: transfer amount exceeds balance')
   })
 
@@ -120,12 +120,35 @@ describe('Warden', () => {
 
     const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
 
-    await expect(warden.connect(other).permit(deployer.address, spender.address, TEST_AMOUNT, deadline, v, utils.hexlify(r), utils.hexlify(s)))
+    await expect(warden.connect(other0).permit(deployer.address, spender.address, TEST_AMOUNT, deadline, v, utils.hexlify(r), utils.hexlify(s)))
       .to.emit(warden, 'Approval')
       .withArgs(deployer.address, spender.address, TEST_AMOUNT)
     expect(await warden.allowance(deployer.address, spender.address)).to.eq(TEST_AMOUNT)
     expect(await warden.nonces(deployer.address)).to.eq('1')
 
     await warden.connect(spender).transferFrom(deployer.address, spender.address, TEST_AMOUNT)
+  })
+
+  describe('Delegation', () => {
+    it('nested delegation', async () => {
+      const amount0 = parseUnits('1', 18)
+      const amount1 = parseUnits('2', 18)
+      await warden.transfer(other0.address, amount0)
+      await warden.transfer(other1.address, amount1)
+  
+      expect(await warden.getCurrentVotes(other0.address)).to.be.eq(0)
+      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(0)
+  
+      await warden.connect(other0).delegate(other1.address)
+      expect(await warden.getCurrentVotes(other0.address)).to.be.eq(0)
+      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0)
+  
+      await warden.connect(other1).delegate(other1.address)
+      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0.add(amount1))
+  
+      await warden.connect(other1).delegate(deployer.address)
+      expect(await warden.getCurrentVotes(other1.address)).to.be.eq(amount0)
+      expect(await warden.getCurrentVotes(deployer.address)).to.be.eq(amount1)
+    })
   })
 })
