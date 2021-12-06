@@ -17,3 +17,14 @@ Solidity: 0.5.16
 
 Forked from 
 [https://github.com/compound-finance/compound-protocol/](https://github.com/compound-finance/compound-protocol/)
+
+
+## Test Coverage
+
+| File        |  % Stmts | % Branch |  % Funcs |  % Lines |Uncovered Lines |
+|-------------|----------|----------|----------|----------|----------------|
+| contracts/  |      100 |       90 |      100 |      100 |                |
+|  Warden.sol |      100 |       90 |      100 |      100 |                |
+|-------------|----------|----------|----------|----------|----------------|
+| All files   |      100 |       90 |      100 |      100 |                |
+|-------------|----------|----------|----------|----------|----------------|
