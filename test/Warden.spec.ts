@@ -103,28 +103,72 @@ describe('Warden', () => {
     expect(await warden.balanceOf(spender.address)).to.eq(TEST_AMOUNT)
   })
 
-  it('permit', async () => {
-    const nonce = await warden.nonces(deployer.address)
-    const deadline = constants.MaxUint256
-    const digest = await getApprovalDigest(
-      warden,
-      deployer.address,
-      spender.address,
-      TEST_AMOUNT,
-      nonce,
-      deadline,
-      chainId
-    )
+  describe('permit', () => {
+    it('reverts if the signatory is invalid', async () => {
+      const deadline = constants.MaxUint256
+      await expect(warden.connect(other0).permit(deployer.address, spender.address, TEST_AMOUNT, deadline, 0, formatBytes32String('bad'), formatBytes32String('bad')))
+        .revertedWith('Wad::permit: invalid signature')
+    })
 
-    const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
+    it('reverts if the nonce is bad ', async () => {
+      const nonce = BigNumber.from('1')
+      const deadline = constants.MaxUint256
+      const digest = await getApprovalDigest(
+        warden,
+        deployer.address,
+        spender.address,
+        TEST_AMOUNT,
+        nonce,
+        deadline,
+        chainId
+      )
+      const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
 
-    await expect(warden.connect(other0).permit(deployer.address, spender.address, TEST_AMOUNT, deadline, v, utils.hexlify(r), utils.hexlify(s)))
-      .to.emit(warden, 'Approval')
-      .withArgs(deployer.address, spender.address, TEST_AMOUNT)
-    expect(await warden.allowance(deployer.address, spender.address)).to.eq(TEST_AMOUNT)
-    expect(await warden.nonces(deployer.address)).to.eq('1')
+      await expect(warden.connect(other0).permit(deployer.address, spender.address, TEST_AMOUNT, deadline, v, utils.hexlify(r), utils.hexlify(s)))
+        .revertedWith('Wad::permit: unauthorized')
+    })
 
-    await warden.connect(spender).transferFrom(deployer.address, spender.address, TEST_AMOUNT)
+    it('reverts if the signature has expired', async () => {
+      const nonce = await warden.nonces(deployer.address)
+      const deadline = BigNumber.from('0')
+      const digest = await getApprovalDigest(
+        warden,
+        deployer.address,
+        spender.address,
+        TEST_AMOUNT,
+        nonce,
+        deadline,
+        chainId
+      )
+      const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
+  
+      await expect(warden.connect(other0).permit(deployer.address, spender.address, TEST_AMOUNT, deadline, v, utils.hexlify(r), utils.hexlify(s)))
+        .revertedWith('Wad::permit: signature expired')
+    })
+
+    it('permits on behalf of the signatory', async () => {
+      const nonce = await warden.nonces(deployer.address)
+      const deadline = constants.MaxUint256
+      const digest = await getApprovalDigest(
+        warden,
+        deployer.address,
+        spender.address,
+        TEST_AMOUNT,
+        nonce,
+        deadline,
+        chainId
+      )
+  
+      const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
+  
+      await expect(warden.connect(other0).permit(deployer.address, spender.address, TEST_AMOUNT, deadline, v, utils.hexlify(r), utils.hexlify(s)))
+        .to.emit(warden, 'Approval')
+        .withArgs(deployer.address, spender.address, TEST_AMOUNT)
+      expect(await warden.allowance(deployer.address, spender.address)).to.eq(TEST_AMOUNT)
+      expect(await warden.nonces(deployer.address)).to.eq('1')
+  
+      await warden.connect(spender).transferFrom(deployer.address, spender.address, TEST_AMOUNT)
+    })
   })
 
   it('nested delegation', async () => {
@@ -175,7 +219,7 @@ describe('Warden', () => {
       const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
 
       await expect(warden.connect(other0).delegateBySig(deployer.address, nonce, expiry, v, utils.hexlify(r), utils.hexlify(s)))
-      .revertedWith('Wad::delegateBySig: invalid nonce')
+        .revertedWith('Wad::delegateBySig: invalid nonce')
     })
 
     it('reverts if the signature has expired', async () => {
@@ -184,7 +228,7 @@ describe('Warden', () => {
       const { v, r, s } = ecsign(Buffer.from(digest.slice(2), 'hex'), Buffer.from(deployer.privateKey.slice(2), 'hex'))
 
       await expect(warden.connect(other0).delegateBySig(deployer.address, nonce, expiry, v, utils.hexlify(r), utils.hexlify(s)))
-      .revertedWith('Wad::delegateBySig: signature expired')
+        .revertedWith('Wad::delegateBySig: signature expired')
     })
 
     it('delegates on behalf of the signatory', async () => {
@@ -263,7 +307,7 @@ describe('Warden', () => {
   describe('getPriorVotes', () => {
     it('reverts if block number >= current block', async () => {
       await expect(warden.getPriorVotes(a1.address, 5e10))
-      .revertedWith('Wad::getPriorVotes: not yet determined')
+        .revertedWith('Wad::getPriorVotes: not yet determined')
     })
 
     it('returns 0 if there are no checkpoints', async () => {
